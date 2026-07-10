@@ -4,19 +4,13 @@ import android.app.Activity;
 import android.app.Application;
 import android.content.Context;
 import android.os.Bundle;
-import android.os.Environment;
-import android.preference.Preference;
-import android.preference.PreferenceCategory;
-import android.preference.PreferenceScreen;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.ViewGroup;
 import android.widget.Toast;
 
 import java.io.File;
-import java.io.FileWriter;
-import java.io.PrintWriter;
-import java.io.StringWriter;
+import java.io.FileOutputStream;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -34,131 +28,105 @@ public class MainHook implements IXposedHookLoadPackage {
     private static final String YOUTUBE_PKG = "com.google.android.youtube";
 
     private final WeakHashMap<Activity, GestureHandler> handlers = new WeakHashMap<>();
-    private boolean toastShown = false;
-    private static File logFile;
+    private boolean initDone = false;
 
-    private static void logToFile(String msg) {
+    private static void writeLog(String msg) {
         try {
-            if (logFile == null) {
-                File dir = new File(Environment.getExternalStorageDirectory(), "YouSlide");
-                dir.mkdirs();
-                logFile = new File(dir, "youslide.log");
+            Log.e("YouSlide", msg);
+            // Try multiple locations
+            String[] paths = {
+                "/data/local/tmp/youslide.log",
+                "/sdcard/YouSlide/youslide.log",
+                "/storage/emulated/0/YouSlide/youslide.log"
+            };
+            String ts = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date());
+            String line = "[" + ts + "] " + msg + "\n";
+            for (String p : paths) {
+                try {
+                    File f = new File(p);
+                    f.getParentFile().mkdirs();
+                    FileOutputStream fos = new FileOutputStream(f, true);
+                    fos.write(line.getBytes("UTF-8"));
+                    fos.close();
+                    break;
+                } catch (Throwable ignored) {}
             }
-            String ts = new SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(new Date());
-            FileWriter fw = new FileWriter(logFile, true);
-            fw.write("[" + ts + "] " + msg + "\n");
-            fw.close();
         } catch (Throwable ignored) {}
     }
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
+        // Log ALL package loads so we can see what'`s happening
+        writeLog("handleLoadPackage: " + lpparam.packageName + " | process=" + lpparam.processName);
+
         if (!YOUTUBE_PKG.equals(lpparam.packageName)) return;
 
-        Log.e(TAG, "========================================");
-        Log.e(TAG, "YouSlide: Loaded into YouTube process!");
-        Log.e(TAG, "========================================");
-        logToFile("YouSlide v1.0.3 loaded into YouTube process");
+        writeLog("=== YOUTUBE MATCHED! Loading hooks... ===");
 
-        // Hook Application.onCreate - guaranteed to run
+        if (initDone) {
+            writeLog("Already initialized, skipping");
+            return;
+        }
+        initDone = true;
+
+        // ---- Step 1: Hook Application.onCreate ----
         try {
             XposedHelpers.findAndHookMethod(
                 Application.class,
                 "onCreate",
                 new XC_MethodHook() {
                     @Override
-                    protected void afterHookedMethod(MethodHookParam param) {
+                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                         Application app = (Application) param.thisObject;
+                        writeLog("Application.onCreate: " + app.getPackageName());
+
                         if (!YOUTUBE_PKG.equals(app.getPackageName())) return;
-                        Log.e(TAG, "YouSlide: Application.onCreate() called");
-                        logToFile("Application.onCreate() hooked");
 
-                        // Register ActivityLifecycleCallbacks to catch all activities
+                        writeLog("=== YOUTUBE APP ONCREATE ===");
+
+                        // Show toast
+                        try {
+                            Toast.makeText(app, "YouSlide 已注入", Toast.LENGTH_LONG).show();
+                            writeLog("Toast shown");
+                        } catch (Throwable t) {
+                            writeLog("Toast FAILED: " + t.getMessage());
+                        }
+
+                        // Register activity callbacks
                         app.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() {
-                            private int activityCount = 0;
                             @Override
-                            public void onActivityCreated(Activity activity, Bundle savedInstanceState) {
-                                String name = activity.getClass().getSimpleName();
-                                activityCount++;
-                                Log.i(TAG, "Activity #" + activityCount + " created: " + name);
-                                logToFile("Activity: " + name);
-
-                                // Show toast on first main activity (not splash)
-                                if (!toastShown && !name.contains("Splash") && !name.contains("Launch")) {
-                                    toastShown = true;
+                            public void onActivityCreated(Activity a, Bundle b) {
+                                writeLog("Activity: " + a.getClass().getSimpleName());
+                                a.getWindow().getDecorView().postDelayed(() -> {
                                     try {
-                                        Toast.makeText(activity, "YouSlide ✓ 已注入", Toast.LENGTH_LONG).show();
-                                    } catch (Throwable t) {
-                                        Log.w(TAG, "Toast failed: " + t.getMessage());
-                                    }
-                                }
+                                        Toast.makeText(a, "YouSlide", Toast.LENGTH_SHORT).show();
+                                    } catch (Throwable ignored) {}
+                                }, 500);
                             }
                             @Override public void onActivityStarted(Activity a) {}
-                            @Override public void onActivityResumed(Activity a) {}
+                            @Override public void onActivityResumed(Activity a) {
+                                // Show toast on first resumed non-splash activity
+                                if (a.getClass().getSimpleName().contains("Main") ||
+                                    a.getClass().getSimpleName().contains("Home") ||
+                                    a.getClass().getSimpleName().contains("Watch")) {
+                                    writeLog("Resumed: " + a.getClass().getSimpleName());
+                                }
+                            }
                             @Override public void onActivityPaused(Activity a) {}
                             @Override public void onActivityStopped(Activity a) {}
                             @Override public void onActivitySaveInstanceState(Activity a, Bundle b) {}
                             @Override public void onActivityDestroyed(Activity a) {}
                         });
+                        writeLog("Lifecycle callbacks registered");
                     }
                 }
             );
-            Log.e(TAG, "YouSlide: Application.onCreate hook installed");
-            logToFile("Application.onCreate hook installed");
+            writeLog("Application.onCreate hook OK");
         } catch (Throwable t) {
-            Log.e(TAG, "YouSlide: Failed to hook Application.onCreate", t);
-            logToFile("FAILED to hook Application.onCreate: " + t.getMessage());
+            writeLog("Application hook FAILED: " + t.getMessage());
         }
 
-        // ---- Settings: Add YouSlide entry to YouTube settings ----
-        try {
-            XposedHelpers.findAndHookMethod(
-                "android.preference.PreferenceFragment",
-                lpparam.classLoader,
-                "onCreate",
-                android.os.Bundle.class,
-                new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) {
-                        try {
-                            Object fragment = param.thisObject;
-                            PreferenceScreen screen = (PreferenceScreen) XposedHelpers.callMethod(fragment, "getPreferenceScreen");
-                            if (screen == null) return;
-                            Activity activity = (Activity) XposedHelpers.callMethod(fragment, "getActivity");
-                            if (activity == null) return;
-                            if (!activity.getClass().getName().startsWith(YOUTUBE_PKG)) return;
-
-                            Preference existing = screen.findPreference("youslide_status");
-                            if (existing != null) return;
-
-                            PreferenceCategory cat = new PreferenceCategory(activity);
-                            cat.setTitle("YouSlide");
-                            cat.setKey("youslide_category");
-                            screen.addPreference(cat);
-
-                            Preference status = new Preference(activity);
-                            status.setKey("youslide_status");
-                            status.setTitle("模块状态");
-                            status.setSummary("已激活 | v1.0.3");
-                            status.setEnabled(false);
-                            cat.addPreference(status);
-
-                            Log.e(TAG, "YouSlide: Settings entry added!");
-                            logToFile("Settings entry added");
-                        } catch (Throwable t) {
-                            Log.w(TAG, "Settings add failed: " + t.getMessage());
-                        }
-                    }
-                }
-            );
-            Log.e(TAG, "YouSlide: Settings hook installed");
-            logToFile("Settings hook installed");
-        } catch (Throwable t) {
-            Log.w(TAG, "Settings hook setup failed: " + t.getMessage());
-            logToFile("Settings hook FAILED: " + t.getMessage());
-        }
-
-        // ---- Gesture: Hook ViewGroup.dispatchTouchEvent ----
+        // ---- Step 2: Gesture hooks ----
         try {
             XposedHelpers.findAndHookMethod(
                 ViewGroup.class,
@@ -178,7 +146,7 @@ public class MainHook implements IXposedHookLoadPackage {
                         if (handler == null) {
                             handler = new GestureHandler(activity);
                             handlers.put(activity, handler);
-                            Log.i(TAG, "Handler -> " + activity.getClass().getSimpleName());
+                            writeLog("Handler attached: " + activity.getClass().getSimpleName());
                         }
                         boolean consumed = handler.onTouch(null, event);
                         if (consumed) {
@@ -187,14 +155,11 @@ public class MainHook implements IXposedHookLoadPackage {
                     }
                 }
             );
-            Log.e(TAG, "YouSlide: Gesture hook installed");
-            logToFile("Gesture hook installed");
+            writeLog("Gesture hook OK");
         } catch (Throwable t) {
-            Log.e(TAG, "YouSlide: Gesture hook FAILED", t);
-            logToFile("Gesture hook FAILED: " + t.getMessage());
+            writeLog("Gesture hook FAILED: " + t.getMessage());
         }
 
-        Log.e(TAG, "YouSlide: All hooks setup complete");
-        logToFile("=== Setup complete ===");
+        writeLog("=== Setup complete ===");
     }
 }
