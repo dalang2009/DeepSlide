@@ -1,4 +1,4 @@
-﻿package com.youslide;
+package com.youslide;
 
 import android.app.Activity;
 import android.os.Bundle;
@@ -25,7 +25,6 @@ public class MainHook implements IXposedHookLoadPackage {
 
         Log.i(TAG, "YouSlide: YouTube detected, hooking...");
 
-        // Hook Activity.dispatchTouchEvent to intercept all touches BEFORE YouTube
         XposedHelpers.findAndHookMethod(
             Activity.class,
             "dispatchTouchEvent",
@@ -36,7 +35,6 @@ public class MainHook implements IXposedHookLoadPackage {
                     Activity activity = (Activity) param.thisObject;
                     String className = activity.getClass().getName();
 
-                    // Only hook YouTube'`s own activities
                     if (!className.startsWith("com.google.android.youtube")) return;
 
                     MotionEvent event = (MotionEvent) param.args[0];
