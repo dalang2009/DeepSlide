@@ -1,8 +1,11 @@
 package com.youslide;
 
 import android.app.Activity;
+import android.content.Context;
 import android.util.Log;
 import android.view.MotionEvent;
+import android.view.View;
+import android.view.ViewGroup;
 
 import java.util.WeakHashMap;
 
@@ -24,17 +27,20 @@ public class MainHook implements IXposedHookLoadPackage {
 
         Log.i(TAG, "YouSlide: YouTube detected, hooking...");
 
+        // Hook ViewGroup.dispatchTouchEvent to intercept ALL touches including SurfaceView
         XposedHelpers.findAndHookMethod(
-            Activity.class,
+            ViewGroup.class,
             "dispatchTouchEvent",
             MotionEvent.class,
             new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                    Activity activity = (Activity) param.thisObject;
-                    String className = activity.getClass().getName();
+                    ViewGroup view = (ViewGroup) param.thisObject;
+                    Context context = view.getContext();
+                    if (!(context instanceof Activity)) return;
 
-                    if (!className.startsWith("com.google.android.youtube")) return;
+                    Activity activity = (Activity) context;
+                    if (!activity.getClass().getName().startsWith("com.google.android.youtube")) return;
 
                     MotionEvent event = (MotionEvent) param.args[0];
 
@@ -42,30 +48,17 @@ public class MainHook implements IXposedHookLoadPackage {
                     if (handler == null) {
                         handler = new GestureHandler(activity);
                         handlers.put(activity, handler);
-                        Log.i(TAG, "YouSlide: Gesture handler created for " + className);
+                        Log.i(TAG, "YouSlide: Handler attached to " + activity.getClass().getSimpleName());
                     }
 
-                    boolean justStarted = !handler.isGestureActive();
                     boolean consumed = handler.onTouch(null, event);
-
                     if (consumed) {
-                        if (justStarted) {
-                            // Cancel YouTube's own gesture by injecting ACTION_CANCEL
-                            MotionEvent cancel = MotionEvent.obtain(event);
-                            cancel.setAction(MotionEvent.ACTION_CANCEL);
-                            param.args[0] = cancel;
-                            // Let original method dispatch the cancel, then consume
-                            param.setResult(null);
-                            // Schedule to re-intercept: let cancel through, then block next
-                        } else {
-                            // Block event from reaching YouTube
-                            param.setResult(true);
-                        }
+                        param.setResult(true);
                     }
                 }
             }
         );
 
-        Log.i(TAG, "YouSlide: Hook installed");
+        Log.i(TAG, "YouSlide: Hook installed at ViewGroup level");
     }
 }

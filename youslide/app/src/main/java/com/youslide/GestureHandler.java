@@ -26,7 +26,7 @@ public class GestureHandler {
     private static final int GESTURE_VOLUME = 3;
 
     private static final long DOUBLE_TAP_TIMEOUT = 350; // ms
-    private static final float MIN_SWIPE_DISTANCE = 30f; // dp-ish px threshold
+    private static final float MIN_SWIPE_DISTANCE = 15f; // dp-ish px threshold
 
     private final Activity activity;
     private final AudioManager audioManager;
