@@ -217,4 +217,7 @@ public class GestureHandler {
         activity.dispatchKeyEvent(downEvent);
         activity.dispatchKeyEvent(upEvent);
     }
+    public boolean isGestureActive() {
+        return gestureType != GESTURE_NONE;
+    }
 }

@@ -1,7 +1,6 @@
 package com.youslide;
 
 import android.app.Activity;
-import android.os.Bundle;
 import android.util.Log;
 import android.view.MotionEvent;
 
@@ -46,9 +45,22 @@ public class MainHook implements IXposedHookLoadPackage {
                         Log.i(TAG, "YouSlide: Gesture handler created for " + className);
                     }
 
+                    boolean justStarted = !handler.isGestureActive();
                     boolean consumed = handler.onTouch(null, event);
+
                     if (consumed) {
-                        param.setResult(true);
+                        if (justStarted) {
+                            // Cancel YouTube's own gesture by injecting ACTION_CANCEL
+                            MotionEvent cancel = MotionEvent.obtain(event);
+                            cancel.setAction(MotionEvent.ACTION_CANCEL);
+                            param.args[0] = cancel;
+                            // Let original method dispatch the cancel, then consume
+                            param.setResult(null);
+                            // Schedule to re-intercept: let cancel through, then block next
+                        } else {
+                            // Block event from reaching YouTube
+                            param.setResult(true);
+                        }
                     }
                 }
             }
