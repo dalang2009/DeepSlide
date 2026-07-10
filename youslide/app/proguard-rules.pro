@@ -1,0 +1,1 @@
+﻿# YouSlide ProGuard Rules
