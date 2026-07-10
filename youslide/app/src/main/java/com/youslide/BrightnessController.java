@@ -1,4 +1,4 @@
-﻿package com.youslide;
+package com.youslide;
 
 import android.app.Activity;
 import android.provider.Settings;

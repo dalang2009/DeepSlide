@@ -1,4 +1,4 @@
-﻿package com.youslide;
+package com.youslide;
 
 import android.media.AudioManager;
 import android.util.Log;
